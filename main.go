@@ -18,16 +18,15 @@ var baseURL string = "https://www.saramin.co.kr/zf_user/search/recruit?&searchwo
 func main() {
 
 	var jobs [] extractedJob
+	c := make(chan []extractedJob)
 	totalPages := getPages()
-	fmt.Println(totalPages)
-	fmt.Println(totalPages)
-	fmt.Println(totalPages)
-	fmt.Println(totalPages)
 	for i := 0; i < totalPages; i++ {
-		extractedJobs := getPage(i)
+		go getPage(i, c)
+	}
+	for i := 0; i < totalPages; i ++ {
+		extractedJobs := <-c
 		jobs = append(jobs, extractedJobs...)
 	}
-
 	writeJobs(jobs)
 }
 
@@ -73,8 +72,9 @@ func writeJobs(jobs []extractedJob) {
 	}
 }
 
-func getPage(page int) []extractedJob{
+func getPage(page int, mainc chan<- []extractedJob) {
 	var jobs [] extractedJob
+	c := make(chan extractedJob)
 	pageURL := baseURL + "&recruitPage=" + strconv.Itoa(page) + "&recruitSort=relation&recruitPageCount=40&inner_com_type=&company_cd=0%2C1%2C2%2C3%2C4%2C5%2C6%2C7%2C9%2C10&show_applied=&quick_apply=&except_read=&ai_head_hunting=&mainSearch=n"
 	fmt.Println("requesting From ...   ", pageURL)
 	res, err := http.Get(pageURL)
@@ -86,23 +86,24 @@ func getPage(page int) []extractedJob{
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	checkErr(err)
 
-	searchcards := doc.Find(".item_recruit")
+	searchCards := doc.Find(".item_recruit")
 
-	searchcards.Each(func(i int, card *goquery.Selection){
-
-		job := extractJob(card)
-		jobs = append(jobs, job)
+	searchCards.Each(func(i int, card *goquery.Selection){
+		go extractJob(card, c)
 	})
-	return jobs
+
+	for i:=0; i < searchCards.Length(); i ++ {
+		job := <-c
+		jobs = append(jobs, job)
+	}
+	mainc <- jobs
 }
 
-func extractJob(card *goquery.Selection) extractedJob{
+func extractJob(card *goquery.Selection, c chan<- extractedJob) {
 		id, _ := card.Attr("value")
 		title := cleanString(card.Find(".job_tit>a").Text())
 		condition := cleanString(card.Find(".job_condition").Text())
-		fmt.Println(id, title, condition)
-
-		return extractedJob{id:id, title:title, condition: condition,}
+		c <- extractedJob{id:id, title:title, condition: condition}
 }
 
 func checkErr(err error) {
